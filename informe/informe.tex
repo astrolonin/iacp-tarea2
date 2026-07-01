@@ -168,14 +168,14 @@ El pipeline es completamente síncrono:
 \toprule
 Fase & Tiempo (ms) \\
 \midrule
-H$\rightarrow$D (dataset) & \texttt{TODO} \\
-Ejecución de kernels & \texttt{TODO} \\
-D$\rightarrow$H (matriz C) & \texttt{TODO} \\
+H$\rightarrow$D (dataset) & 0.047 \\
+Ejecución de kernels & 1.194 \\
+D$\rightarrow$H (matriz C) & 0.349 \\
 \midrule
-\textbf{Total} & \texttt{TODO} \\
+\textbf{Total} & 1.590 \\
 \bottomrule
 \end{tabular}
-\caption{Tiempos del Experimento 1}
+\caption{Tiempos del Experimento 1 ($n=1024$, 32$\times$32)}
 \end{table}
 
 %---------------------------------------------------------------------
@@ -198,20 +198,20 @@ de carrera al escribir la matriz $\mathbf{C}$.
 \toprule
 $S$ & Batches & Tiempo total (ms) & Speedup vs. $S=1$ \\
 \midrule
-1  & \texttt{TODO} & \texttt{TODO} & 1.00$\times$ \\
-2  & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-4  & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-8  & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-16 & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
+1  &  2 & 1.641 & 1.00$\times$ \\
+2  &  4 & 2.578 & 0.64$\times$ \\
+4  &  8 & 1.829 & 0.90$\times$ \\
+8  & 15 & 2.135 & 0.77$\times$ \\
+16 & 25 & 2.593 & 0.63$\times$ \\
 \bottomrule
 \end{tabular}
-\caption{Tiempos totales por configuración de streams}
+\caption{Tiempos totales por configuración de streams ($n=1024$, 32$\times$32)}
 \end{table}
 
 \begin{figure}[H]
 \centering
-% \includegraphics[width=0.8\textwidth]{speedup.pdf}
-\caption{Speedup en función del número de streams $S$}
+\includegraphics[width=0.95\textwidth]{speedup.pdf}
+\caption{Speedup y tiempo total en función del número de streams $S$}
 \end{figure}
 
 %---------------------------------------------------------------------
@@ -220,25 +220,180 @@ $S$ & Batches & Tiempo total (ms) & Speedup vs. $S=1$ \\
 
 \subsection{Perfilado con Nsight Systems}
 
+Se utilizó Nsight Systems 2023.4.4 para capturar el timeline completo de ambos experimentos.
+Las trazas generadas están disponibles en
+\texttt{results/nsys\_exp1.nsys-rep}, \texttt{results/nsys\_exp2\_S4.nsys-rep}
+y \texttt{results/nsys\_exp2\_S4\_size64.nsys-rep} para su visualización en la GUI.
+
+Los perfiles de Nsight Systems confirman que en el Experimento~2 con $S=4$ streams
+las transferencias H$\rightarrow$D se solapan parcialmente con los kernels de
+\texttt{cov\_accumulate\_tiled\_kernel}. Sin embargo, con $n=1024$ el tiempo de
+cómputo domina significativamente sobre las transferencias (1.194~ms vs. 0.047~ms),
+por lo que el solapamiento no produce ganancias sustanciales.
+
 % Incluir diagrama/captura de Nsight Systems mostrando solapamiento
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{timeline.pdf}
+\caption{Diagrama de l\'inea de tiempo comparando Experimento~1 (secuencial) y
+Experimento~2 ($S=4$ streams). Se observa el solapamiento H$\rightarrow$D--Kernel
+en la parte inferior.}
+\end{figure}
+
+Los kernels identificados por Nsight Systems y sus tiempos para cada experimento son:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\multicolumn{4}{c}{\textbf{Experimento 1: Distribuci\'on de kernels}} \\
+\midrule
+Kernel & Instancias & Tiempo (us) & \% GPU \\
+\midrule
+\texttt{cov\_accumulate\_tiled} & 1 & 1152.2 & 95\% \\
+\texttt{postprocess\_cov}         & 1 & 36.3   &  3\% \\
+\texttt{zero\_matrix}             & 1 & 14.8   &  1\% \\
+\texttt{reduce\_mean\_v2}         & 1 & 5.0    & <1\% \\
+\texttt{scale\_vector}            & 1 & 1.9    & <1\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\multicolumn{4}{c}{\textbf{Experimento 2 (S=4): Distribuci\'on de kernels}} \\
+\midrule
+Kernel & Instancias & Tiempo (us) & \% GPU \\
+\midrule
+\texttt{cov\_accumulate\_tiled} & 8 & 1406.2 & 94\% \\
+\texttt{postprocess\_cov}         & 1 & 35.6   &  2\% \\
+\texttt{partial\_mean}            & 8 & 24.7   &  2\% \\
+\texttt{zero\_matrix}             & 1 & 14.6   &  1\% \\
+\texttt{reduce\_partial\_means}   & 1 & 2.1    & <1\% \\
+\texttt{scale\_vector}            & 1 & 1.5    & <1\% \\
+\bottomrule
+\end{tabular}
+\caption{Desglose de kernels reportado por Nsight Systems}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrr}
+\toprule
+\multicolumn{3}{c}{\textbf{Perfilado con Nsight Compute (ncu)}} \\
+\midrule
+Métrica & \texttt{cov\_accumulate\_tiled} & \texttt{postprocess\_cov} \\
+\midrule
+Registros por hilo & 25 & 16 \\
+Shared memory estática & 256 B & 0 B \\
+Shared memory total/block & 1280 B & 1024 B \\
+Ocupación de warps (\% pico) & 66.67\% & 66.67\% \\
+Throughput SM (\% pico) & 67.23\% & 25.87\% \\
+Throughput DRAM (\% pico) & 3.36\% & 66.82\% \\
+Throughput computo+mem (\% pico) & 67.23\% & 66.82\% \\
+\bottomrule
+\end{tabular}
+\caption{Métricas de Nsight Compute para los kernels principales}
+\end{table}
+
+El kernel \texttt{cov\_accumulate\_tiled} está limitado por cómputo con solo
+3.36\% de uso de DRAM. La ocupación del 66.67\% se debe a que el bloque de
+$32\times32$ hilos (1024 threads, 32 warps) excede el límite de 1536 threads por SM
+en Ampere, permitiendo solo 1 bloque por SM. Los 25 registros por hilo y los 256~B
+de memoria compartida estática no son factores limitantes.
+
+El kernel \texttt{postprocess\_cov} está limitado por memoria (66.82\% DRAM),
+leyendo la matriz $\mathbf{C}$ y el vector $\boldsymbol{\mu}$ de memoria global
+sin uso de shared memory.
 
 \subsection{¿A partir de cuántos streams el rendimiento deja de mejorar?}
 
-\texttt{TODO: Discutir resultados empíricos vs. teóricos.}
+Los resultados empíricos muestran que el rendimiento \textbf{no mejora en ningún
+caso} al aumentar el número de streams. El mejor resultado para $n=1024$ se
+obtiene con $S=1$ (1.641~ms), y cada incremento de $S$ introduce overhead adicional:
+
+\begin{itemize}
+    \item $S=2$: 2.578~ms (+57.1\% vs. $S=1$), debido al costo de sincronización
+          con CUDA Events y la creación de buffers adicionales.
+    \item $S=4$: 1.829~ms (+11.5\%), la mejor configuración con streams pero
+          aun peor que sin streaming.
+    \item $S=8$ y $S=16$: el overhead de lanzamiento de kernels y eventos domina
+          completamente, con incrementos de 30\%--58\%.
+\end{itemize}
+
+Esto contrasta con la expectativa teórica de que más streams permitirían mayor
+solapamiento. La razón es que el cómputo representa $\sim$75\% del tiempo total
+mientras que la transferencia H$\rightarrow$D apenas ocupa $\sim$3\%. El overhead
+de dividir el trabajo en batches peque\~nos y serializar kernels vía eventos es
+mayor que cualquier ahorro por solapamiento.
+
+Para la configuración de estrés con $n=4096$ (64$\times$64), la misma tendencia
+se mantiene: $S=1$ es 27.68~ms vs. $S=16$ con 34.85~ms (+25.9\%).
 
 \subsection{Limitación del bus PCIe}
 
-\texttt{TODO: Analizar si la estrategia de latency hiding mitigó la limitación.}
+Con $n=1024$, el dataset completo ocupa 0.39~MB. El tiempo de transferencia
+H$\rightarrow$D medido es de 0.047~ms, equivalente a $\sim$8.3~GB/s, muy por
+debajo de la capacidad máxima del bus PCIe 4.0 $\times$16 de la RTX 3060
+($\sim$16~GB/s). La limitante real no es el bus PCIe sino el cómputo en la GPU.
+
+La estrategia de \textit{latency hiding} mediante double buffering no logra mitigar
+la limitación porque la transferencia es demasiado peque\~na como para justificar
+el overhead de orquestación. En escenarios con imágenes de mayor resolución
+($n=4096$, dataset de 1.56~MB, H$\rightarrow$D = 0.148~ms), el patrón persiste:
+el cómputo escala cuadráticamente con $n$ ($O(n^2)$) mientras la transferencia
+lo hace linealmente ($O(n)$).
 
 \subsection{Viabilidad para datasets que superan la VRAM}
 
-\texttt{TODO: Discutir escalabilidad y limitaciones de memoria.}
+La implementación con streams permite procesar datasets arbitrariamente grandes
+siempre que la matriz de covarianza $\mathbf{C}$ ($n^2 \times 4$ bytes) quepa en VRAM:
+
+\begin{itemize}
+    \item Para $n=1024$: $\mathbf{C} \approx 4$~MB, dejando $\sim$6~GB libres para
+          buffers y batches. Con un batch de 50 imágenes de 32$\times$32 (0.2~MB),
+          se podrían procesar millones de imágenes sin problema.
+    \item Para $n=4096$: $\mathbf{C} \approx 67$~MB, aun manejable.
+    \item El factor limitante real es $n$, no $m$. Duplicar $n$ cuadruplica
+          $\mathbf{C}$ (de 4~MB a 67~MB) e incrementa el cómputo en $4\times$.
+    \item Para $n=16384$ (128$\times$128), $\mathbf{C}$ ocuparía $\sim$1~GB,
+          aun viable en la RTX 3060 de 6~GB pero con tiempos de cómputo
+          prohibitivos para uso interactivo.
+\end{itemize}
 
 %---------------------------------------------------------------------
 \section{Conclusiones}
 %---------------------------------------------------------------------
 
-\texttt{TODO}
+\begin{enumerate}
+    \item La implementación tradicional con Stream~0 ofrece el mejor rendimiento
+          para el tama\~no de problema evaluado ($n=1024$, 100 imágenes), con un
+          tiempo total de 1.590~ms. La simplicidad del pipeline secuencial evita
+          el overhead de sincronización y particionamiento.
+
+    \item La orquestación con CUDA Streams y double buffering no produce mejoras
+          de rendimiento. El overhead de lanzar más kernels, crear eventos CUDA,
+          manejar buffers adicionales y serializar la escritura a la matriz $\mathbf{C}$
+          supera cualquier beneficio por solapamiento. Para $S=1$ sin streaming
+          se obtiene 1.641~ms, mientras que $S=4$ (la mejor configuración con
+          streams) toma 1.829~ms.
+
+    \item El perfil de la aplicación está dominado por el cómputo ($\sim$75\% del
+          tiempo) y no por las transferencias PCIe ($\sim$3\%). Las técnicas de
+          \textit{latency hiding} son efectivas cuando las transferencias representan
+          una fracción significativa del tiempo total, lo cual no ocurre aquí.
+
+    \item La matriz de covarianza $\mathbf{C}$ es el factor limitante de
+          escalabilidad, no el número de imágenes $m$. El streaming permite
+          procesar datasets que exceden la VRAM siempre que $\mathbf{C}$ quepa
+          en memoria del dispositivo.
+
+    \item Para trabajos futuros, se recomienda explorar la reducción en shared
+          memory del kernel \texttt{cov\_accumulate\_tiled\_kernel} con múltiples
+          tiles por bloque y optimizar el acceso coalescente a memoria global.
+\end{enumerate}
 
 %---------------------------------------------------------------------
 \bibliographystyle{plain}

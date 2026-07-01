@@ -1,0 +1,45 @@
+=== Tarea 2 — Covariance Matrix on CUDA ===
+Dataset: data/DIV2K_valid_LR_bicubic/X4 | Resize: 64x64 | n=4096
+[PRE] Found 100 PNG images. Resize to 64x64 grayscale.
+[PRE] Dataset ready: 100 images, n=4096, pinned memory 1.56 MB
+
+--- Experiment 1: Traditional CUDA (Stream 0) ---
+[EXP1] H→D: 0.148 ms | Kernels: 19.943 ms | D→H: 5.118 ms | Total: 25.209 ms
+RESULT,exp1,h2d,0.148
+RESULT,exp1,kernels,19.943
+RESULT,exp1,d2h,5.118
+RESULT,exp1,total,25.209
+
+--- Experiment 2: CUDA Streams ---
+
+[EXP2] S=1 streams, B=2 batches, batch_size=50
+[EXP2] Total: 27.683 ms (S=1, B=2)
+RESULT,exp2,S1,total,27.683
+RESULT,exp2,S1,batches,2
+RESULT,exp2,S1,batch_size,50
+
+[EXP2] S=2 streams, B=4 batches, batch_size=25
+[EXP2] Total: 28.193 ms (S=2, B=4)
+RESULT,exp2,S2,total,28.193
+RESULT,exp2,S2,batches,4
+RESULT,exp2,S2,batch_size,25
+
+[EXP2] S=4 streams, B=8 batches, batch_size=13
+[EXP2] Total: 29.334 ms (S=4, B=8)
+RESULT,exp2,S4,total,29.334
+RESULT,exp2,S4,batches,8
+RESULT,exp2,S4,batch_size,13
+
+[EXP2] S=8 streams, B=15 batches, batch_size=7
+[EXP2] Total: 34.761 ms (S=8, B=15)
+RESULT,exp2,S8,total,34.761
+RESULT,exp2,S8,batches,15
+RESULT,exp2,S8,batch_size,7
+
+[EXP2] S=16 streams, B=25 batches, batch_size=4
+[EXP2] Total: 34.853 ms (S=16, B=25)
+RESULT,exp2,S16,total,34.853
+RESULT,exp2,S16,batches,25
+RESULT,exp2,S16,batch_size,4
+
+Done.

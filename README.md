@@ -221,33 +221,36 @@ sequenceDiagram
 
 | Config | Tiempo H→D | Tiempo kernels | Tiempo D→H | Total |
 |---|---|---|---|---|
-| Exp1 (Stream 0) | 0.40 ms | 1.43 ms | 0.36 ms | 2.18 ms |
+| Exp1 (Stream 0) | 0.047 ms | 1.194 ms | 0.349 ms | 1.590 ms |
 
-| S | B | batch_size | Total (ms) | vs Exp1 |
+| S | B | batch_size | Total (ms) | vs S=1 |
 |---|---|---|---|---|
-| 1 | 2 | 50 | 2.06 ms | −5.4% |
-| 2 | 4 | 25 | 2.08 ms | −4.4% |
-| 4 | 8 | 13 | 2.55 ms | +17.0% |
-| 8 | 15 | 7 | 2.60 ms | +19.2% |
-| 16 | 25 | 4 | 3.13 ms | +43.6% |
+| 1 | 2 | 50 | 1.641 ms | 1.00× |
+| 2 | 4 | 25 | 2.578 ms | 0.64× |
+| 4 | 8 | 13 | 1.829 ms | 0.90× |
+| 8 | 15 | 7 | 2.135 ms | 0.77× |
+| 16 | 25 | 4 | 2.593 ms | 0.63× |
 
-*(Completar con resultados de ejecución)*
+*(Resultados medidos en RTX 3060 Laptop, CUDA 13.0)*
 
-### 6.2 Análisis
+### 6.2 Perfilado Nsight Compute
 
-- **S=1:** Sin solapamiento. T_total ≈ 2.06 ms.
-- **S≥2:** El H→D de cada batch se solapa con el kernel del batch anterior.
-  Con n=1024 la transferencia (0.40 ms) es ~28% del cómputo (1.43 ms).
-  Aun así, el overhead de más lanzamientos de kernels, eventos CUDA y
-  reducción de sumas parciales domina cualquier ganancia.
-- **Conclusión:** Más streams empeora el rendimiento (S=16 es 52% más lento
-  que S=1). El cuello de botella es el cómputo, no PCIe. El solapamiento
-  sería beneficioso con datasets masivos (m >> 100) o vectores más grandes.
-- **PCIe:** RTX 3060 Laptop con PCIe 4.0 ×16 (~16 GB/s). Para 100 imágenes
-  de 32×32 (0.39 MB), la transferencia completa toma <0.1 ms.
-- **Viabilidad para datasets > VRAM:** El streaming permite procesar datasets
-  arbitrariamente grandes siempre que C (n×n) quepa en VRAM. C es el factor
-  limitante real, no el número de imágenes m.
+| Métrica (ncu) | cov_accumulate_tiled | postprocess_cov |
+|---|---|---|
+| Registros/hilo | 25 | 16 |
+| Shared mem estática | 256 B | 0 B |
+| Ocupación warps (% pico) | 66.67% | 66.67% |
+| SM throughput (% pico) | 67.23% | 25.87% |
+| DRAM throughput (% pico) | 3.36% | 66.82% |
+
+### 6.3 Análisis
+
+- **S=1:** Sin solapamiento. Mejor rendimiento: 1.641 ms.
+- **S=4:** Mejor con streams: 1.829 ms (+11.5% vs S=1), overhead de eventos domina.
+- **S≥2:** El overhead de lanzar más kernels, eventos CUDA y reducción de sumas parciales supera cualquier beneficio de solapamiento.
+- **ncu confirma:** `cov_accumulate_tiled` está limitado por cómputo (3.36% DRAM, 67.23% SM). La ocupación de 66.67% es por el bloque 32×32 (1024 threads) que excede 1536 threads/SM en Ampere.
+- **Conclusión:** Más streams empeora el rendimiento. El cuello de botella es el cómputo, no PCIe. El solapamiento sería beneficioso con datasets masivos (m >> 100) o vectores más grandes donde la transferencia PCIe sea comparable al cómputo.
+- **Viabilidad para datasets > VRAM:** El streaming permite procesar datasets arbitrariamente grandes siempre que C (n×n) quepa en VRAM. C es el factor limitante real, no el número de imágenes m.
 
 ---
 
